@@ -29,6 +29,7 @@ O Certificador é uma ferramenta desenvolvida em Python com interface gráfica q
    ```
    git clone https://github.com/IvoAndre/certificador.git
    ```
+   ```
    cd certificador
    ```
 
