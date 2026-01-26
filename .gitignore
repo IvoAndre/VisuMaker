@@ -1,0 +1,43 @@
+# Ficheiros de configuração pessoal
+config.py
+
+# Logs
+logs/
+*.log
+
+# Tokens de autenticação (segurança)
+*.token
+o365_token.txt
+
+# Cache de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Ambiente virtual
+venv/
+env/
+ENV/
+
+# Ficheiros temporários
+*.tmp
+*.temp
+*.bak
+.DS_Store
+temp/
+
+# Ficheiros de saída/certificados gerados
+gerados/
+
+# Ficheiros de dados
+*.csv
+fonts_map.json
+
+# Ficheiros IDE
+.vscode/
+.idea/
+*.swp
+
+# Variáveis de ambiente
+.env
+.env.local

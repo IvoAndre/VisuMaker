@@ -1,0 +1,47 @@
+# config.py
+
+import datetime
+
+# Configuração de Email SMTP
+SMTP_SERVER = 'smtp.gmail.com'  # ou seu servidor SMTP (ex: smtp.office365.com para Outlook)
+SMTP_PORT = 587  # 587 para TLS, 465 para SSL
+SMTP_USER = 'seu_email@gmail.com'  # Seu email
+SMTP_PASSWORD = 'sua_senha_aplicacao'  # Sua senha ou chave de aplicação
+SMTP_FROM_NAME = 'Certificador'  # Nome que aparece como remetente
+SMTP_USE_TLS = True  # Use True para TLS, False para SSL
+
+# Fonte e tamanho padrão
+FONT_PATH = 'arial.ttf'
+FONT_SIZE = 23
+FONT_COLOR = (0, 0, 0)
+
+# Configurações adicionais de email
+DEFAULT_EMAIL_CONFIG = {
+    "use_template": False,
+    "template_path": "",
+    "subject": "Seu Certificado",
+    "attachment_name": "Certificado_{nome}.png",  # Nome do anexo (pode usar placeholders)
+    "cc": [],  # Lista de emails para CC
+    "bcc": []  # Lista de emails para BCC
+}
+# Mensagem de e-mail com placeholders 
+EMAIL_BODY = (
+    "Olá {nome},\n\n"
+    "Este é um exemplo de email com placeholders.\n"
+    "Em anexo, encontra o seu certificado.\n\n"
+    "Cumprimentos,\n"
+    "Equipa"
+)
+
+def get_data_atual_extenso():
+    meses = [
+        'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+        'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'
+    ]
+    hoje = datetime.datetime.now()
+    return f"{hoje.day} de {meses[hoje.month-1]} de {hoje.year}"
+
+GLOBAL_PLACEHOLDERS = {
+    'data': get_data_atual_extenso,
+    'local': 'Local'
+}
