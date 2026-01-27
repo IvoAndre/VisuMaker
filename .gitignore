@@ -1,13 +1,10 @@
 # Ficheiros de configuração pessoal
 config.py
+email-template.html
 
 # Logs
 logs/
 *.log
-
-# Tokens de autenticação (segurança)
-*.token
-o365_token.txt
 
 # Cache de Python
 __pycache__/

@@ -21,6 +21,7 @@ import argparse
 import sys
 from datetime import datetime
 import subprocess
+import time
 import config
 
 # Configuração do sistema de logging
@@ -2682,6 +2683,16 @@ class CertificateApp(tk.Tk):
             # Guarda o certificado
             nome = row['nome']
             fname = os.path.join(out_dir, f"{nome}.png")
+            
+            # Verifica se já existe arquivo com este nome e adiciona número se necessário
+            if os.path.exists(fname):
+                base_name = nome
+                counter = 1
+                while os.path.exists(os.path.join(out_dir, f"{base_name}_{counter}.png")):
+                    counter += 1
+                fname = os.path.join(out_dir, f"{base_name}_{counter}.png")
+                logging.info(f"Arquivo {nome}.png já existe. Salvando como {base_name}_{counter}.png")
+            
             cert.save(fname)
             logging.info(f"Certificado gerado: {fname}")
             
@@ -2781,13 +2792,34 @@ class CertificateApp(tk.Tk):
             try:
                 status, cert_path = result
                 if status == "success" and os.path.exists(cert_path):
+                    # Verifica se as colunas necessárias existem
+                    try:
+                        if 'email' not in row.index or 'nome' not in row.index:
+                            logging.error("Colunas 'email' ou 'nome' não encontradas no CSV")
+                            # coloca erro no resultado para manter contagem
+                            result_queue.put(("error", "colunas_missing"))
+                            return ("error", "colunas_missing")
+
+                        recipient = str(row['email']).strip()
+                        name = str(row['nome']).strip()
+                    except Exception as e:
+                        logging.error(f"Erro ao extrair colunas do CSV: {e}")
+                        result_queue.put(("error", str(e)))
+                        return ("error", str(e))
+
                     email_data = {
-                        "recipient": row['email'],
-                        "name": row['nome'],
+                        "recipient": recipient,
+                        "name": name,
                         "cert_path": cert_path,
                         "row_data": row.to_dict()
                     }
                     email_queue.put(email_data)
+            except KeyError as e:
+                logging.error(f"Erro ao acessar coluna no CSV: {e}")
+                return "error", None
+            except Exception as e:
+                logging.error(f"Erro ao processar email data: {e}")
+                return "error", None
             except Exception as e:
                 logging.error(f"Erro ao preparar email para {row.get('nome', 'desconhecido')}: {e}")
         
@@ -2805,74 +2837,81 @@ class CertificateApp(tk.Tk):
             
             def update_progress():
                 nonlocal cert_done, email_done
-                # Processa resultados da geração de certificados
-                while not result_queue.empty():
-                    try:
-                        result = result_queue.get_nowait()
-                        # Incrementa contador apenas se for bem sucedido
-                        cert_done += 1
-                        progress_bar["value"] = cert_done + email_done
-                        progress.update_idletasks()  # Força a atualização da interface
-                        
-                        # Sempre mostra contador de emails também
-                        status_label.config(text=f"Gerando: {cert_done}/{total_tasks} | Emails: {email_done}/{total_tasks}")
-                        progress.update_idletasks()  # Força a atualização do texto
-                    except queue.Empty:
-                        break
-                
-                # Processa a fila de emails (removida condição use_o365)
-                while not email_queue.empty() and email_done < cert_done:
-                    try:
-                        email_data = email_queue.get_nowait()
-                        
-                        # Atualiza o status
-                        status_label.config(text=f"Enviando email para {email_data['name']}...")
-                        progress.update_idletasks()  # Força a atualização da interface
-                        
-                        # Verifica autenticação antes de enviar
-                        if not hasattr(self, 'account') or not self.account:
-                            if not self.authenticate_o365():
-                                status_label.config(text=f"Erro de autenticação para {email_data['name']}...")
-                                progress.update_idletasks()
+                try:
+                    # Processa resultados da geração de certificados
+                    while not result_queue.empty():
+                        try:
+                            result = result_queue.get_nowait()
+                            # Incrementa contador apenas se for bem sucedido
+                            cert_done += 1
+                            progress_bar["value"] = cert_done + email_done
+                            progress.update_idletasks()  # Força a atualização da interface
+                            
+                            # Sempre mostra contador de emails também
+                            status_label.config(text=f"Gerando: {cert_done}/{total_tasks} | Emails: {email_done}/{total_tasks}")
+                            progress.update_idletasks()  # Força a atualização do texto
+                        except queue.Empty:
+                            break
+                    
+                    # Processa a fila de emails
+                    while not email_queue.empty() and email_done < cert_done:
+                        email_data = None
+                        try:
+                            email_data = email_queue.get_nowait()
+                            if not email_data:
                                 email_done += 1
                                 continue
                                 
-                        # Envia o email
-                        try:
-                            result = self._send_email(email_data)
+                            # Atualiza o status
+                            status_label.config(text=f"Enviando email para {email_data.get('name', '?')}...")
+                            progress.update_idletasks()
+                            
+                            # Envia o email (uso seguro com retries)
+                            result = self.send_email_safe(email_data)
+                            
+                            # Incrementa contador de emails
+                            email_done += 1
+                            progress_bar["value"] = cert_done + email_done
+                            progress.update_idletasks()
+                            progress.title(f"Gerando/Enviando - {email_done}/{total_tasks}")
+                            status_label.config(text=f"Gerando: {cert_done}/{total_tasks} | Emails: {email_done}/{total_tasks}")
+                            progress.update_idletasks()
+                        except queue.Empty:
+                            break
                         except Exception as e:
-                            logging.error(f"Erro ao enviar email: {e}")
-                            result = False
-                        
-                        # Incrementa contador de emails
-                        email_done += 1
-                        progress_bar["value"] = cert_done + email_done
-                        progress.update_idletasks()  # Força a atualização da barra
-                        progress.title(f"Gerando/Enviando - {email_done}/{total_tasks}")
-                        status_label.config(text=f"Gerando: {cert_done}/{total_tasks} | Emails: {email_done}/{total_tasks}")
-                        progress.update_idletasks()  # Força a atualização do texto
-                    except queue.Empty:
-                        break
-                    except Exception as e:
-                        logging.error(f"Erro ao enviar email: {e}")
-                        # Mesmo com erro, incrementamos o contador para não ficar preso
-                        email_done += 1
-                        status_label.config(text=f"Erro ao enviar para {email_data.get('name', 'desconhecido')}: {str(e)[:50]}...")
-                        progress.update_idletasks()  # Força a atualização do texto
+                            logging.error(f"Erro ao processar email na fila: {e}")
+                            email_done += 1
+                            name = email_data.get('name', 'desconhecido') if email_data else 'desconhecido'
+                            status_label.config(text=f"Erro ao enviar para {name}: {str(e)[:50]}...")
+                            progress.update_idletasks()
+                    
+                    # Verifica se concluímos tudo
+                    all_done = cert_done >= total_tasks and email_done >= total_tasks
+                    
+                    if all_done:
+                        # Mostra a mensagem de sucesso
+                        messagebox.showinfo("Concluído", 
+                                        f"Certificados gerados e enviados com sucesso.\n"
+                                        f"Total: {cert_done} certificados gerados, {email_done} emails enviados.")
+                        try:
+                            progress.destroy()
+                        except:
+                            pass
+                        return
+                    
+                    # Agenda próxima atualização
+                    try:
+                        progress.after(100, update_progress)
+                    except:
+                        return
                 
-                # Verifica se concluímos tudo
-                all_done = cert_done >= total_tasks and email_done >= total_tasks
-                
-                if all_done:
-                    # Sempre mostra a mensagem de sucesso com certificados e emails
-                    messagebox.showinfo("Concluído", 
-                                    f"Certificados gerados e enviados com sucesso.\n"
-                                    f"Total: {cert_done} certificados gerados, {email_done} emails enviados.")
-                    progress.destroy()
-                    return
-                
-                # Agenda próxima atualização
-                progress.after(100, update_progress)
+                except Exception as e:
+                    logging.error(f"Erro na atualização de progresso: {e}", exc_info=True)
+                    try:
+                        status_label.config(text=f"Erro: {str(e)[:50]}")
+                        progress.update_idletasks()
+                    except:
+                        pass
             
             # Inicia monitoramento de progresso
             progress.after(100, update_progress)
@@ -2882,6 +2921,10 @@ class CertificateApp(tk.Tk):
         if self.df is None:
             messagebox.showwarning("Aviso", "Carregue primeiro um CSV.")
             return
+        
+        # Limpa o placeholder global do assunto (não estamos enviando emails)
+        config.GLOBAL_PLACEHOLDERS['subject'] = None
+        
         out_dir = "gerados"
         os.makedirs(out_dir, exist_ok=True)
 
@@ -3339,6 +3382,9 @@ class CertificateApp(tk.Tk):
         if not self.model_img:
             messagebox.showwarning("Aviso", "Carregue primeiro um modelo.")
             return
+        
+        # Limpa o placeholder global do assunto (não estamos enviando emails)
+        config.GLOBAL_PLACEHOLDERS['subject'] = None
         
         # Criar diretório temporário se não existir
         out_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp")
@@ -4356,8 +4402,6 @@ class CertificateApp(tk.Tk):
         except Exception as e:
             logging.error(f"Erro ao atualizar entrada de mapeamento de fontes: {e}")
 
-    # Método de autenticação O365 (implementado na função authenticate_o365)
-
     def _send_email(self, email_data):
         """Envia email com certificado anexado utilizando SMTP"""
         try:
@@ -4370,10 +4414,61 @@ class CertificateApp(tk.Tk):
         except Exception as e:
             logging.error(f"Erro ao processar email: {e}")
             return False
+
+    def send_email_safe(self, email_data, retries=2, delay=2):
+        """Tenta enviar email com retries e logging robusto.
+        Retorna True se enviado, False caso contrário.
+        """
+        try:
+            recipient = email_data.get('recipient') or email_data.get('to')
+            if not recipient or not isinstance(recipient, str):
+                logging.error(f"Email inválido: {recipient}")
+                return False
+            recipient = recipient.strip()
+            if '@' not in recipient:
+                logging.error(f"Email inválido (sem @): {recipient}")
+                return False
+
+            attempt = 0
+            while attempt <= retries:
+                try:
+                    ok = self._send_email(email_data)
+                    if ok:
+                        return True
+                    else:
+                        logging.error(f"Falha ao enviar email para {recipient} (tentativa {attempt+1})")
+                except smtplib.SMTPAuthenticationError as e:
+                    logging.error(f"Erro de autenticação SMTP ao enviar para {recipient}: {e}")
+                    return False
+                except Exception as e:
+                    logging.error(f"Erro ao enviar email para {recipient}: {e}")
+
+                attempt += 1
+                if attempt <= retries:
+                    backoff = delay * (2 ** (attempt-1))
+                    logging.info(f"Re-tentando em {backoff}s...")
+                    time.sleep(backoff)
+
+            logging.error(f"Todas tentativas falharam para {recipient}")
+            return False
+
+        except Exception as e:
+            logging.error(f"Erro inesperado em send_email_safe: {e}")
+            return False
     
     def _send_email_with_template(self, recipient, cert_path, row_data):
         """Envia um email com template para o destinatário via SMTP"""
         try:
+            # Valida o email do destinatário
+            if not recipient or not isinstance(recipient, str):
+                logging.error(f"Email inválido: {recipient}")
+                return False
+            
+            recipient = recipient.strip()
+            if '@' not in recipient:
+                logging.error(f"Email inválido (sem @): {recipient}")
+                return False
+            
             if not self.email_config:
                 logging.error("Configuração de email não encontrada")
                 return False
@@ -4395,23 +4490,42 @@ class CertificateApp(tk.Tk):
                 if not text:
                     return ""
                 try:
-                    return text.format(**self.get_all_placeholders(data))
-                except Exception as e:
-                    logging.error(f"Erro ao formatar texto: {e}")
-                    # Tenta uma abordagem mais simples
+                    # Primeiro tenta uma abordagem segura: substitui apenas placeholders conhecidos
+                    result = text
                     for key, value in data.items():
                         placeholder = f"{{{key}}}"
-                        if placeholder in text:
-                            text = text.replace(placeholder, str(value))
+                        if placeholder in result:
+                            result = result.replace(placeholder, str(value))
+                    
+                    # Adiciona placeholders globais do config
+                    global_placeholders = getattr(config, 'GLOBAL_PLACEHOLDERS', {})
+                    for key, value_or_func in global_placeholders.items():
+                        if callable(value_or_func):
+                            try:
+                                value = value_or_func()
+                            except:
+                                value = f"Erro ao calcular GLOBAL_{key}"
+                        else:
+                            value = value_or_func
+                        
+                        placeholder = f"{{GLOBAL_{key}}}"
+                        if placeholder in result:
+                            result = result.replace(placeholder, str(value))
                     
                     # Processa datas dinâmicas
                     import datetime
                     today = datetime.datetime.now()
-                    text = text.replace("{DATA_ATUAL}", today.strftime("%d/%m/%Y"))
+                    result = result.replace("{DATA_ATUAL}", today.strftime("%d/%m/%Y"))
+                    return result
+                except Exception as e:
+                    logging.error(f"Erro ao formatar texto: {e}")
                     return text
             
             # Formata o assunto e corpo com os dados do CSV
             subject = format_text(subject, row_data)
+            
+            # Atualiza o placeholder global do assunto para uso no template
+            config.GLOBAL_PLACEHOLDERS['subject'] = subject
             
             # Se há template e estamos usando template, usa ele; senão, usa o corpo simples
             use_template = self.email_config.get('use_template', False)
@@ -4469,12 +4583,125 @@ class CertificateApp(tk.Tk):
             logging.error(f"Erro ao enviar email com template: {e}")
             return False
 
+    def validate_smtp_config(self):
+        """Valida a configuração SMTP e retorna mensagem de erro se houver problemas"""
+        try:
+            # Verifica se as configurações existem
+            if not hasattr(config, 'SMTP_SERVER') or not config.SMTP_SERVER:
+                return "❌ Erro de Configuração: SMTP_SERVER não está definido no config.py"
+            
+            if not hasattr(config, 'SMTP_PORT') or not config.SMTP_PORT:
+                return "❌ Erro de Configuração: SMTP_PORT não está definido no config.py"
+            
+            if not hasattr(config, 'SMTP_USER') or not config.SMTP_USER:
+                return "❌ Erro de Configuração: SMTP_USER não está definido no config.py"
+            
+            if not hasattr(config, 'SMTP_PASSWORD') or not config.SMTP_PASSWORD:
+                return "❌ Erro de Configuração: SMTP_PASSWORD não está definido no config.py"
+            
+            # Verifica se o servidor é válido (não vazio)
+            if config.SMTP_SERVER.strip() == '':
+                return "❌ Erro de Configuração: SMTP_SERVER está vazio"
+            
+            if '@' in config.SMTP_SERVER:
+                return "❌ Erro de Configuração: SMTP_SERVER não deve conter '@'. Deve ser algo como 'smtp.gmail.com'"
+            
+            if len(config.SMTP_USER.strip()) == 0:
+                return "❌ Erro de Configuração: SMTP_USER está vazio"
+            
+            if len(config.SMTP_PASSWORD.strip()) == 0:
+                return "❌ Erro de Configuração: SMTP_PASSWORD está vazio"
+            
+            # Tudo OK
+            return None
+        except Exception as e:
+            return f"❌ Erro ao validar configuração: {e}"
+    
+    def show_smtp_error(self, error_type, original_error=None):
+        """Mostra erro SMTP de forma amigável ao utilizador com soluções sugeridas"""
+        error_msg = "❌ Erro de Configuração de Email\n\n"
+        
+        if isinstance(original_error, str):
+            error_str = original_error.lower()
+        else:
+            error_str = str(original_error).lower() if original_error else ""
+        
+        # Detecta o tipo de erro e mostra solução apropriada
+        if "getaddrinfo failed" in error_str or "11001" in error_str or "nodename nor servname" in error_str:
+            error_msg += f"🔍 PROBLEMA: Servidor SMTP '{config.SMTP_SERVER}' não encontrado\n\n"
+            error_msg += "SOLUÇÕES (na ordem sugerida):\n\n"
+            error_msg += "1️⃣  Verifique se o nome do servidor está correto em config.py\n"
+            error_msg += "    Servidores comuns:\n"
+            error_msg += "    • Gmail: smtp.gmail.com:587 (TLS=True)\n"
+            error_msg += "    • Outlook: smtp-mail.outlook.com:587 (TLS=True)\n"
+            error_msg += "    • Seu domínio: mail.seudominio.com\n\n"
+            error_msg += "2️⃣  Verifique a sua ligação à Internet\n\n"
+            error_msg += "3️⃣  Contacte o administrador de email do seu servidor\n"
+        
+        elif "timeout" in error_str or "10060" in error_str or "timed out" in error_str:
+            error_msg += f"⏱️  PROBLEMA: Servidor SMTP '{config.SMTP_SERVER}:{config.SMTP_PORT}' não responde\n\n"
+            error_msg += "SOLUÇÕES (na ordem sugerida):\n\n"
+            error_msg += "1️⃣  Verifique se a porta está correta em config.py:\n"
+            error_msg += "    • 587 para TLS/STARTTLS\n"
+            error_msg += "    • 465 para SSL\n\n"
+            error_msg += "2️⃣  Servidor pode estar offline - tente mais tarde\n\n"
+            error_msg += "3️⃣  Verifique firewall/antivírus que podem estar bloqueando\n"
+        
+        elif "authentication" in error_str or "credential" in error_str or "535" in error_str or "unauthorized" in error_str:
+            error_msg += "🔐 PROBLEMA: Credenciais SMTP inválidas\n\n"
+            error_msg += "SOLUÇÕES (na ordem sugerida):\n\n"
+            error_msg += f"1️⃣  Verifique em config.py:\n"
+            error_msg += f"    • SMTP_USER: {config.SMTP_USER}\n"
+            error_msg += f"    • SMTP_PASSWORD: [verificar se está correto]\n\n"
+            error_msg += "2️⃣  Se tem autenticação 2FA (Gmail, Outlook):\n"
+            error_msg += "    • Gmail: gere uma 'Senha de Aplicação' em myaccount.google.com\n"
+            error_msg += "    • Outlook: ative 'Autenticação de Aplicação' nas definições\n\n"
+            error_msg += "3️⃣  Teste a senha manualmente no seu cliente de email\n"
+        
+        elif "tls" in error_str or "ssl" in error_str or "certificate" in error_str or "ehlo" in error_str:
+            error_msg += "🔒 PROBLEMA: Erro de segurança SSL/TLS\n\n"
+            error_msg += "SOLUÇÕES (na ordem sugerida):\n\n"
+            error_msg += "1️⃣  Verifique em config.py:\n"
+            error_msg += f"    • SMTP_USE_TLS = {config.SMTP_USE_TLS}\n"
+            error_msg += f"    • SMTP_PORT = {config.SMTP_PORT}\n\n"
+            error_msg += "2️⃣  Configure a porta e TLS corretamente:\n"
+            error_msg += "    • Porta 587 → SMTP_USE_TLS = True\n"
+            error_msg += "    • Porta 465 → SMTP_USE_TLS = False\n\n"
+            error_msg += "3️⃣  Se o certificado SSL for inválido, contacte o administrador\n"
+        
+        elif "connection refused" in error_str or "refused" in error_str:
+            error_msg += f"🚫 PROBLEMA: Conexão recusada por '{config.SMTP_SERVER}:{config.SMTP_PORT}'\n\n"
+            error_msg += "SOLUÇÕES (na ordem sugerida):\n\n"
+            error_msg += "1️⃣  Verifique a porta em config.py (normalmente 587 ou 465)\n\n"
+            error_msg += "2️⃣  Servidor pode estar offline ou não suporta essa porta\n\n"
+            error_msg += "3️⃣  Firewall/antivírus pode estar bloqueando a ligação\n"
+        
+        else:
+            error_msg += f"⚠️  Erro desconhecido:\n\n{str(original_error)}\n\n"
+            error_msg += "Por favor, contacte o administrador com esta mensagem."
+        
+        # Mostra a mensagem ao utilizador
+        try:
+            messagebox.showerror("❌ Erro de Email", error_msg)
+        except Exception as e:
+            print(f"\n{error_msg}\n")
+            logging.error(f"Erro ao mostrar dialogo: {e}")
+
     def _send_email_smtp(self, email_data):
         """Envia email via SMTP simples"""
         try:
+            # Valida configuração primeiro
+            validation_error = self.validate_smtp_config()
+            if validation_error:
+                logging.error(validation_error)
+                messagebox.showerror("Erro de Configuração SMTP", validation_error)
+                return False
+            
             # Verifica credenciais no config
             if not all(hasattr(config, attr) for attr in ['SMTP_SERVER', 'SMTP_PORT', 'SMTP_USER', 'SMTP_PASSWORD']):
-                logging.error("Credenciais SMTP não configuradas no config.py")
+                error = "Credenciais SMTP não configuradas no config.py"
+                logging.error(error)
+                messagebox.showerror("Erro de Configuração", error)
                 return False
             
             # Prepara dados do email
@@ -4530,17 +4757,31 @@ class CertificateApp(tk.Tk):
                 server.quit()
                 
                 return True
-            except smtplib.SMTPAuthenticationError:
-                logging.error("Erro de autenticação SMTP - verifique credenciais")
+            except smtplib.SMTPAuthenticationError as e:
+                error = "Erro de autenticação SMTP - verifique credenciais"
+                logging.error(error)
+                self.show_smtp_error("auth", e)
                 return False
             except smtplib.SMTPException as e:
                 logging.error(f"Erro SMTP: {e}")
+                self.show_smtp_error("smtp", e)
+                return False
+            except socket.gaierror as e:
+                logging.error(f"Erro ao resolver servidor: {e}")
+                self.show_smtp_error("dns", e)
+                return False
+            except socket.timeout as e:
+                logging.error(f"Timeout ao conectar servidor: {e}")
+                self.show_smtp_error("timeout", e)
+                return False
+            except ConnectionRefusedError as e:
+                logging.error(f"Conexão recusada: {e}")
+                self.show_smtp_error("connection", e)
                 return False
                 
         except Exception as e:
             logging.error(f"Erro ao enviar email via SMTP: {e}")
-            import traceback
-            traceback.print_exc()
+            self.show_smtp_error("general", e)
             return False
 
 

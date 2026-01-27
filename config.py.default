@@ -43,5 +43,6 @@ def get_data_atual_extenso():
 
 GLOBAL_PLACEHOLDERS = {
     'data': get_data_atual_extenso,
-    'local': 'Local'
+    'local': 'Local',
+    'subject': None  # Será preenchido dinamicamente com o assunto do email
 }
