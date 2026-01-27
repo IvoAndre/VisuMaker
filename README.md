@@ -9,6 +9,8 @@ Aplicação para geração automática de documentos visuais a partir de modelos
 
 O VisuMaker é uma ferramenta desenvolvida em Python com interface gráfica que permite criar e personalizar documentos visuais em massa.
 
+<img width="1202" height="732" alt="image" src="https://github.com/user-attachments/assets/629dfbf6-acf4-4893-ad4a-83f1279c9a57" />
+
 ### Funcionalidades Principais
 
 - Interface gráfica intuitiva para design de documentos visuais
