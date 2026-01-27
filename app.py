@@ -1,4 +1,9 @@
 import os
+import shutil
+config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py')
+default_config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'config.py.default')
+if not os.path.exists(config_path) and os.path.exists(default_config_path):
+    shutil.copy(default_config_path, config_path)
 import json
 import tkinter as tk
 from tkinter import filedialog, colorchooser, messagebox, ttk
@@ -23,6 +28,7 @@ from datetime import datetime
 import subprocess
 import time
 import config
+import socket
 
 # Configuração do sistema de logging
 def setup_logging(verbose=False):
@@ -78,6 +84,8 @@ def setup_logging(verbose=False):
 # Parse de argumentos de linha de comando
 parser = argparse.ArgumentParser(description='VisuMaker - Gerador de Documentos Visuais')
 parser.add_argument('-v', '--verbose', action='store_true', help='Ativa modo verbose com logs detalhados')
+parser.add_argument('-csv', '--csv', type=str, help='Caminho para um arquivo CSV para carregar automaticamente', default=None)
+parser.add_argument('-proj', '--proj', type=str, help='Caminho para um template HTML para carregar automaticamente', default=None)
 args = parser.parse_args()
 
 # Configura o sistema de logging baseado nos argumentos
@@ -91,13 +99,21 @@ os.environ['PILLOW_CHUNK_SIZE'] = '1024'  # Aumenta tamanho do chunk para opera�
 import ctypes
 from ctypes import wintypes
 
-class CertificateApp(tk.Tk):
+class App(tk.Tk):
     def __init__(self):
         super().__init__()
         
         self.title("VisuMaker")
         self.geometry("1200x700")
         self.configure(bg='#303030')  # Tema escuro
+        
+        # Define o ícone da aplicação
+        try:
+            icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app.ico")
+            if os.path.exists(icon_path):
+                self.iconbitmap(default=icon_path)
+        except Exception as e:
+            logging.warning(f"Não foi possível carregar ícone: {e}")
         
         # Configura o protocolo para capturar o evento de fecho
         self.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -110,8 +126,8 @@ class CertificateApp(tk.Tk):
             "authenticated": False,  # Por predefinição, não está autenticado
             "use_template": False,
             "template_path": "",
-            "subject": "Certificado de Participação",
-            "attachment_name": "Certificado_{nome}.png",
+            "subject": "Documento Visual",
+            "attachment_name": "Documento_{nome}.png",
             "cc": [],
             "bcc": []
         }
@@ -352,10 +368,11 @@ class CertificateApp(tk.Tk):
             ("Esquecer CSV", self.forget_csv),
             ("Gerar & Enviar", self.generate_all),
             ("Apenas Gerar", self.generate_images_only),
-            ("Testar Certificado", self.generate_test_certificate),
+            ("Testar Documento", self.generate_test_certificate),
             ("Guardar Layout", self.save_layout),
             ("Carregar Layout", self.load_layout),
             ("Atualizar Fontes", self.update_fonts_map),
+            ("Editar Config", self.open_config_editor),
         ]
         self.forget_csv_btn = None  # Referência ao botão para atualizar estado
         for (txt, cmd) in act_btns:
@@ -387,6 +404,10 @@ class CertificateApp(tk.Tk):
         if self.forget_csv_btn:
             self.forget_csv_btn.config(state=tk.DISABLED)
         messagebox.showinfo("CSV Esquecido", "O CSV carregado foi esquecido.")
+
+    def open_config_editor(self):
+        """Abre um editor de configurações (glorified text editor)."""
+        ConfigEditor(self)
 
     def add_layer_to_list(self, item_id, name):
         # Adiciona à lista de camadas e à ordem
@@ -2208,8 +2229,8 @@ class CertificateApp(tk.Tk):
             messagebox.showerror("Erro", error_message)
 
     def save_layout(self):
-        path = filedialog.asksaveasfilename(defaultextension=".certproj",
-                                           filetypes=[("Projetos de Certificado", "*.certproj")])
+        path = filedialog.asksaveasfilename(defaultextension=".visuproj",
+                                           filetypes=[("Projetos VisuMaker", "*.visuproj")])
         if not path: return
         
         # Mostra janela de progresso
@@ -2283,11 +2304,17 @@ class CertificateApp(tk.Tk):
             progress.destroy()
             messagebox.showerror("Erro", f"Erro ao guardar projeto: {str(e)}")
 
-    def load_layout(self):
-        """Carrega um layout existente"""
-        path = filedialog.askopenfilename(defaultextension=".certproj",
-                                         filetypes=[("Projetos de Certificado", "*.certproj")])
-        if not path: return
+    def load_layout(self, path=None):
+        """Carrega um layout existente
+        
+        Args:
+            path: Caminho opcional para o arquivo .visuproj. Se None, abre diálogo de arquivo.
+        """
+        # Se não foi fornecido um caminho, abre diálogo
+        if path is None:
+            path = filedialog.askopenfilename(defaultextension=".visuproj",
+                                             filetypes=[("Projetos VisuMaker", "*.visuproj")])
+            if not path: return
         
         # Mostra janela de progresso
         progress = tk.Toplevel(self)
@@ -2305,72 +2332,62 @@ class CertificateApp(tk.Tk):
         try:
             with open(path) as f:
                 data = json.load(f)
-                
-                # Cria pasta temporária para imagens embutidas
                 temp_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp", "temp_images")
                 os.makedirs(temp_dir, exist_ok=True)
-                
-                # Limpa o estado atual
                 self.clear_all_layers()
-                
                 # Carrega o modelo base se existir
                 if 'model' in data and data['model']:
                     try:
-                        # Decodifica o modelo de base64
                         model_bytes = base64.b64decode(data['model'])
                         model_stream = io.BytesIO(model_bytes)
                         self.model_img = Image.open(model_stream).convert("RGBA")
-                        
-                        # Atualiza o tamanho do canvas
                         w, h = self.model_img.size
                         self.canvas.config(width=w, height=h)
                         self.canvas.config(scrollregion=(0, 0, w, h))
                     except Exception as model_error:
                         logging.error(f"Erro ao carregar modelo: {model_error}")
-                
                 # Carrega os itens
                 for item_id, item_data in data['items'].items():
-                    # Para imagens, restaura o arquivo a partir dos dados base64
                     if item_data['tipo'] == 'imagem' and 'img_data' in item_data:
                         try:
-                            # Cria um caminho temporário para a imagem
                             temp_path = os.path.join(temp_dir, item_data['filename'])
-                            
-                            # Escreve os dados decodificados no arquivo
                             img_bytes = base64.b64decode(item_data['img_data'])
                             with open(temp_path, 'wb') as img_file:
                                 img_file.write(img_bytes)
-                            
-                            # Atualiza o caminho no item
                             item_data['path'] = temp_path
                         except Exception as img_error:
                             logging.error(f"Erro ao restaurar imagem: {img_error}")
-                            continue  # Pula este item se não conseguir restaurar
-                    
-                    # Adiciona o item à lista
-                    # Garante que todos os textos tenham fundo transparente
+                            continue
                     if item_data['tipo'] == 'texto':
-                        item_data['bg_color'] = ""  # Força fundo transparente para todos os textos
-                    
+                        item_data['bg_color'] = ""
                     self.items[item_id] = item_data
-                    
-                # Restaura a ordem das camadas
                 if 'item_order' in data:
                     self.item_order = data['item_order']
-                
-                # Restaura os nomes das camadas
                 if 'layer_names' in data:
                     self.layer_names = data['layer_names']
-                
-                # Marca todos os itens como visíveis
                 for item_id in self.items:
                     self.visible_items[item_id] = True
-                
-                # Atualiza a interface
                 self.refresh_layers_list()
-                # Forçar redesenho imediato do canvas
                 self._redraw_canvas_now()
-            
+
+                # --- UI/Editor/Template update logic ---
+                # If the layout contains template info, update the UI/editor
+                template_path = data.get('template_path')
+                use_template = data.get('use_template')
+                if template_path is not None and hasattr(self, 'template_path_var'):
+                    self.template_path_var.set(template_path)
+                if use_template is not None and hasattr(self, 'use_template_var'):
+                    self.use_template_var.set(use_template)
+                if hasattr(self, 'toggle_template'):
+                    self.toggle_template()
+                if hasattr(self, 'email_config'):
+                    if template_path is not None:
+                        self.email_config['template_path'] = template_path
+                    if use_template is not None:
+                        self.email_config['use_template'] = use_template
+                if hasattr(self, 'update_preview'):
+                    self.update_preview()
+
             progress.destroy()
             messagebox.showinfo("Projeto", "Projeto carregado com sucesso.")
         except Exception as e:
@@ -2380,7 +2397,7 @@ class CertificateApp(tk.Tk):
     def get_all_placeholders(self, data_dict):
         """
         Processa um dicionário de dados e retorna todos os placeholders disponíveis.
-        Esta função prepara os valores para substituição nos textos dos certificados.
+        Esta função prepara os valores para substituição nos textos dos documentos visuais.
         
         Args:
             data_dict: Dicionário com os dados da linha do CSV
@@ -2436,10 +2453,10 @@ class CertificateApp(tk.Tk):
         return result
 
     def _process_certificate(self, row_data, out_dir, result_queue):
-        """Função auxiliar que processa certificados para ambos os métodos de geração"""
+        """Função auxiliar que processa documentos visuais para ambos os métodos de geração"""
         try:
             index, row = row_data
-            # Cria o certificado com transparência
+            # Cria o documento visual com transparência
             cert = self.model_img.copy().convert("RGBA")
             draw = ImageDraw.Draw(cert)
             
@@ -3378,7 +3395,7 @@ class CertificateApp(tk.Tk):
                 self.sidebar_canvas.yview_scroll(1, "units")
 
     def generate_test_certificate(self):
-        """Gera um certificado de teste e abre-o automaticamente"""
+        """Gera um documento visual de teste e abre-o automaticamente"""
         if not self.model_img:
             messagebox.showwarning("Aviso", "Carregue primeiro um modelo.")
             return
@@ -3430,7 +3447,7 @@ class CertificateApp(tk.Tk):
                 # Chamar função de processamento com os dados de teste
                 self._process_certificate((0, test_df.iloc[0]), out_dir, result_queue)
             except Exception as e:
-                logging.error(f"Erro ao processar certificado de teste: {e}")
+                logging.error(f"Erro ao processar documento de teste: {e}")
                 result_queue.put(("error", str(e)))
         
         # Inicia thread para processar
@@ -4951,7 +4968,7 @@ class EmailConfigWindow(tk.Toplevel):
         
         tk.Label(subject_frame, text="Assunto:", bg='#303030', fg='white', width=10, anchor='w').pack(side=tk.LEFT)
         
-        self.subject_var = tk.StringVar(value=self.email_config.get("subject", "Certificado de participação"))
+        self.subject_var = tk.StringVar(value=self.email_config.get("subject", "Documento Visual"))
         subject_entry = tk.Entry(subject_frame, textvariable=self.subject_var, bg='#444444', fg='white')
         subject_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
@@ -4961,7 +4978,7 @@ class EmailConfigWindow(tk.Toplevel):
         
         tk.Label(attach_frame, text="Anexo:", bg='#303030', fg='white', width=10, anchor='w').pack(side=tk.LEFT)
         
-        self.attachment_name_var = tk.StringVar(value=self.email_config.get("attachment_name", "Certificado.png"))
+        self.attachment_name_var = tk.StringVar(value=self.email_config.get("attachment_name", "Documento.png"))
         attach_entry = tk.Entry(attach_frame, textvariable=self.attachment_name_var, bg='#444444', fg='white')
         attach_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=5)
         
@@ -5053,25 +5070,9 @@ class EmailConfigWindow(tk.Toplevel):
         self.preview_text.pack(fill=tk.BOTH, expand=True)
         self.preview_text.config(state=tk.DISABLED, relief=tk.SOLID, borderwidth=1)
         
-        # Preparando para visualização de HTML (usada para templates OFT)
-        try:
-            # Tentamos importar o módulo para navegador embutido
-            import webview
-            self.has_webview = True
-            
-            # Frame para o navegador (inicialmente escondido)
-            self.html_preview_frame = tk.Frame(preview_container, bg='#f8f8f8')
-            
-            # Usaremos esta variável para armazenar o conteúdo HTML temporário
-            self.temp_html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                             "temp", "preview.html")
-            # Garante que o diretório temp existe
-            os.makedirs(os.path.dirname(self.temp_html_path), exist_ok=True)
-            
-        except ImportError:
-            # Se não conseguir importar webview, usaremos apenas o widget de texto
-            self.has_webview = False
-            logging.error("Módulo webview não encontrado. A preview de HTML será mostrada como texto.")
+        # Não há mais webview embutido, só preview em texto e botão para abrir no navegador externo
+        self.temp_html_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "temp", "preview.html")
+        os.makedirs(os.path.dirname(self.temp_html_path), exist_ok=True)
         
         # Botões de ação (na parte inferior do painel direito)
         buttons_frame = tk.Frame(right_panel, bg='#303030')
@@ -5129,14 +5130,21 @@ class EmailConfigWindow(tk.Toplevel):
                     # Usa diretamente o assunto informado na interface
                     subject = self.subject_var.get()
                     
+                    # Configura o placeholder global do assunto para uso no template
+                    import config
+                    config.GLOBAL_PLACEHOLDERS['subject'] = subject
+                    
+                    # Obtém todos os placeholders formatados
+                    all_placeholders = self.parent.get_all_placeholders(sample_data)
+                    
                     # Formata o assunto e corpo com os dados
                     try:
-                        formatted_subject = subject.format(**self.get_all_placeholders(sample_data))
+                        formatted_subject = subject.format(**all_placeholders)
                     except:
                         formatted_subject = subject
                         
                     try:
-                        formatted_body = self._format_text_with_data(body_html_raw, sample_data)
+                        formatted_body = self._format_text_with_data(body_html_raw, all_placeholders)
                     except Exception as e:
                         formatted_body = body_html_raw
                         logging.error(f"Erro ao formatar HTML: {e}")
@@ -5144,66 +5152,34 @@ class EmailConfigWindow(tk.Toplevel):
                     # Verifica se o conteúdo parece ser HTML
                     is_html = '<html' in formatted_body.lower() or '<body' in formatted_body.lower()
                     
-                    # Preparamos o HTML para poder ser visualizado pelo botão "Ver Preview HTML"
-                    if is_html and hasattr(self, 'has_webview') and self.has_webview:
+                    # Prepara o HTML para abrir no navegador externo
+                    if is_html:
                         try:
-                            # Prepara o HTML com CSS para exibir o corpo formatado
                             full_html = f"""
                             <!DOCTYPE html>
                             <html>
                             <head>
-                                <meta charset="utf-8">
+                                <meta charset='utf-8'>
                                 <style>
-                                    body {{
-                                        font-family: Arial, sans-serif;
-                                        margin: 0;
-                                        padding: 20px;
-                                        background-color: #f8f8f8;
-                                    }}
-                                    .content {{
-                                        background-color: white;
-                                        padding: 15px;
-                                        border: 1px solid #ddd;
-                                        border-radius: 4px;
-                                    }}
+                                    body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f8f8f8; }}
+                                    .content {{ background-color: white; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }}
                                 </style>
                             </head>
-                            <body>
-                                <div class="content">
-                                    {formatted_body}
-                                </div>
-                            </body>
-                            </html>
-                            """
-                            
-                            # Salva o HTML em um arquivo temporário (para ser usado pelo botão "Ver Preview HTML")
+                            <body><div class='content'>{formatted_body}</div></body></html>"""
                             with open(self.temp_html_path, "w", encoding="utf-8") as f:
                                 f.write(full_html)
-                                
                         except Exception as e:
                             logging.error(f"Erro ao preparar HTML para preview: {e}")
                     
-                    # Sempre mostramos o conteúdo em modo texto na preview
-                    if hasattr(self, 'text_preview_frame'):
-                        self.text_preview_frame.pack(fill=tk.BOTH, expand=True)
-                        if hasattr(self, 'html_preview_frame'):
-                            self.html_preview_frame.pack_forget()
+                    # Mostra apenas mensagem indicando que template HTML está selecionada
+                    self.text_preview_frame.pack(fill=tk.BOTH, expand=True)
                     
                     # Atualiza a preview em modo texto
                     self.preview_text.config(state=tk.NORMAL)
                     self.preview_text.delete("1.0", tk.END)
                     
-                    # Limpa o HTML para visualização em texto
-                    import re
-                    cleaned_body = re.sub(r'<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>', '', formatted_body)
-                    cleaned_body = re.sub(r'<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>', '', cleaned_body)
-                    # Remove todas as outras tags HTML mas preserva o conteúdo
-                    cleaned_body = re.sub(r'<[^>]+>', ' ', cleaned_body)
-                    # Remove espaços em branco excessivos
-                    cleaned_body = re.sub(r'\s+', ' ', cleaned_body).strip()
-                    
-                    # Mostra o texto limpo
-                    self.preview_text.insert(tk.END, cleaned_body)
+                    # Mostra apenas a mensagem
+                    self.preview_text.insert(tk.END, "Template HTML selecionada\n\nUse o botão 'Ver Preview HTML' para visualizar o template formatado.")
                     self.preview_text.config(state=tk.DISABLED)
                     return
                 except Exception as e:
@@ -5226,70 +5202,34 @@ class EmailConfigWindow(tk.Toplevel):
             # Verifica se o conteúdo parece ser HTML
             is_html = '<html' in formatted_body.lower() or '<body' in formatted_body.lower()
             
-            # Prepara o HTML para uso futuro pelo botão "Ver Preview HTML"
-            if is_html and hasattr(self, 'has_webview') and self.has_webview:
+            # Prepara o HTML para abrir no navegador externo
+            if is_html:
                 try:
-                    # Prepara o HTML com CSS para exibir o corpo formatado
                     full_html = f"""
                     <!DOCTYPE html>
                     <html>
                     <head>
-                        <meta charset="utf-8">
+                        <meta charset='utf-8'>
                         <style>
-                            body {{
-                                font-family: Arial, sans-serif;
-                                margin: 0;
-                                padding: 20px;
-                                background-color: #f8f8f8;
-                            }}
-                            .content {{
-                                background-color: white;
-                                padding: 15px;
-                                border: 1px solid #ddd;
-                                border-radius: 4px;
-                            }}
+                            body {{ font-family: Arial, sans-serif; margin: 0; padding: 20px; background-color: #f8f8f8; }}
+                            .content {{ background-color: white; padding: 15px; border: 1px solid #ddd; border-radius: 4px; }}
                         </style>
                     </head>
-                    <body>
-                        <div class="content">
-                            {formatted_body}
-                        </div>
-                    </body>
-                    </html>
-                    """
-                    
-                    # Salva o HTML em um arquivo temporário para uso futuro
+                    <body><div class='content'>{formatted_body}</div></body></html>"""
                     with open(self.temp_html_path, "w", encoding="utf-8") as f:
                         f.write(full_html)
-                    
                 except Exception as e:
                     logging.error(f"Erro ao preparar HTML para preview: {e}")
             
-            # Sempre mostramos o texto na preview
-            if hasattr(self, 'text_preview_frame'):
-                self.text_preview_frame.pack(fill=tk.BOTH, expand=True)
-                if hasattr(self, 'html_preview_frame'):
-                    self.html_preview_frame.pack_forget()
-            
-            # Atualiza a preview
+            if is_html:
+                # Esconde a preview de texto quando for HTML
+                self.text_preview_frame.pack_forget()
+                return
+            # Se não for HTML, mostra a preview de texto normalmente
+            self.text_preview_frame.pack(fill=tk.BOTH, expand=True)
             self.preview_text.config(state=tk.NORMAL)
             self.preview_text.delete("1.0", tk.END)
-            
-            # Se for HTML, mostramos com tags formatadas
-            if is_html:
-                # Limpa o HTML removendo tags e scripts para uma visualização mais limpa
-                import re
-                cleaned_body = re.sub(r'<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>', '', formatted_body)
-                cleaned_body = re.sub(r'<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>', '', cleaned_body)
-                # Remove todas as outras tags HTML mas preserva o conteúdo
-                cleaned_body = re.sub(r'<[^>]+>', ' ', cleaned_body)
-                # Remove espaços em branco excessivos
-                cleaned_body = re.sub(r'\s+', ' ', cleaned_body).strip()
-                self.preview_text.insert(tk.END, cleaned_body)
-            else:
-                # Para texto normal, mostramos como está
-                self.preview_text.insert(tk.END, formatted_body)
-            
+            self.preview_text.insert(tk.END, formatted_body)
             self.preview_text.config(state=tk.DISABLED)
         except Exception as e:
             # Em caso de erro na formatação, mostra o texto original
@@ -5324,7 +5264,7 @@ class EmailConfigWindow(tk.Toplevel):
         
         # Agora usa o método format padrão do Python com o texto pré-processado
         try:
-            formatted = processed_text.format(**self.get_all_placeholders(data))
+            formatted = processed_text.format(**self.parent.get_all_placeholders(data))
             return formatted
         except KeyError as e:
             # Se algum placeholder não existir, retorna o texto original
@@ -5587,14 +5527,22 @@ DEFAULT_EMAIL_CONFIG = {{
                     "cargo": "Participante",
                     "empresa": "Empresa Exemplo"
                 }
+
+            # Configura o placeholder global do assunto para uso no template
+            subject = self.subject_var.get()
+            import config
+            config.GLOBAL_PLACEHOLDERS['subject'] = subject
+            
+            # Usa get_all_placeholders para obter todos os placeholders formatados
+            all_placeholders = self.parent.get_all_placeholders(sample_data)
             
             # Carrega o template HTML
             with open(self.template_path_var.get(), 'r', encoding='utf-8') as f:
                 body_html_raw = f.read()
                 
-            # Tenta formatar o HTML com os dados de exemplo
+            # Tenta formatar o HTML com os dados de exemplo usando todos os placeholders
             try:
-                formatted_body = self._format_text_with_data(body_html_raw, sample_data)
+                formatted_body = self._format_text_with_data(body_html_raw, all_placeholders)
             except Exception as e:
                 formatted_body = body_html_raw
                 logging.error(f"Erro ao formatar HTML: {e}")
@@ -5644,11 +5592,129 @@ DEFAULT_EMAIL_CONFIG = {{
             logging.error(f"Erro ao carregar o template HTML: {str(e)}")
 
 
+class ConfigEditor(tk.Toplevel):
+    """Janela de editor de configurações (texto simples)."""
+    
+    def __init__(self, parent):
+        super().__init__(parent)
+        
+        self.title("Editor de Configurações")
+        self.geometry("800x600")
+        self.configure(bg='#303030')
+        
+        # Caminho do arquivo config.py
+        self.config_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "config.py")
+        
+        # Frame superior com informações
+        info_frame = tk.Frame(self, bg='#303030')
+        info_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        tk.Label(info_frame, text=f"Editando: {self.config_path}", 
+                bg='#303030', fg='#aaaaaa', font=('Arial', 9)).pack(anchor='w')
+        
+        # Cria o editor de texto
+        text_frame = tk.Frame(self, bg='#3a3a3a')
+        text_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Barra de scroll
+        scrollbar = ttk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Text widget com tema escuro
+        self.text_widget = tk.Text(text_frame, 
+                                  bg='#1e1e1e', 
+                                  fg='#e0e0e0',
+                                  font=('Courier New', 10),
+                                  wrap=tk.NONE,
+                                  yscrollcommand=scrollbar.set,
+                                  insertbackground='#e0e0e0',
+                                  selectbackground='#0e639c',
+                                  selectforeground='#e0e0e0')
+        self.text_widget.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self.text_widget.yview)
+        
+        # Carrega o conteúdo do arquivo config.py
+        self._load_config()
+        
+        # Frame inferior com botões
+        button_frame = tk.Frame(self, bg='#303030')
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        tk.Button(button_frame, text="Guardar", command=self._save_config,
+                 bg='#2196F3', fg='white', font=('Arial', 9, 'bold'),
+                 width=15).pack(side=tk.RIGHT, padx=5)
+        
+        tk.Button(button_frame, text="Cancelar", command=self.destroy,
+                 bg='#444444', fg='white', font=('Arial', 9),
+                 width=15).pack(side=tk.RIGHT, padx=5)
+        
+        tk.Button(button_frame, text="Recarregar", command=self._load_config,
+                 bg='#444444', fg='white', font=('Arial', 9),
+                 width=15).pack(side=tk.LEFT, padx=5)
+    
+    def _load_config(self):
+        """Carrega o conteúdo do arquivo config.py."""
+        try:
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            self.text_widget.delete('1.0', tk.END)
+            self.text_widget.insert('1.0', content)
+            self.text_widget.edit_reset()
+            
+            logging.info("Config.py carregado no editor")
+        except FileNotFoundError:
+            messagebox.showerror("Erro", f"Arquivo não encontrado: {self.config_path}")
+            self.destroy()
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao carregar config.py:\n{str(e)}")
+            self.destroy()
+    
+    def _save_config(self):
+        """Guarda as alterações ao arquivo config.py."""
+        try:
+            content = self.text_widget.get('1.0', tk.END)
+            
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+            
+            messagebox.showinfo("Sucesso", "Configurações guardadas com sucesso!\n\nNota: Você pode precisar reiniciar a aplicação para que as alterações façam efeito.")
+            logging.info("Config.py guardado com sucesso")
+        except Exception as e:
+            messagebox.showerror("Erro", f"Erro ao guardar config.py:\n{str(e)}")
+            logging.error(f"Erro ao guardar config.py: {str(e)}")
+
+
 if __name__ == "__main__":
     # Mensagem de início
     logging.info("Iniciando VisuMaker...")
     # Se estiver em modo verbose, mostra mais informações
     if args.verbose:
         logging.info("Modo verbose ativado - logs detalhados serão mostrados")
-    app = CertificateApp()
+    app = App()
+
+    # Lógica simples: se argumentos -csv ou -proj forem passados, preenche os campos na UI
+    def fill_cli_loaded_files():
+        # Carrega layout/projeto se -proj foi passado
+        if hasattr(args, 'proj') and args.proj:
+            try:
+                # Usa a função load_layout diretamente para garantir consistência
+                app.load_layout(path=args.proj)
+            except Exception as e:
+                logging.error(f"Erro ao carregar projeto via argumento: {e}")
+        
+        # Preenche CSV se -csv foi passado
+        if hasattr(app, 'df') and hasattr(args, 'csv') and args.csv:
+            try:
+                import pandas as pd
+                app.df = pd.read_csv(args.csv)
+                if hasattr(app, 'forget_csv_btn'):
+                    app.forget_csv_btn.config(state=tk.NORMAL)
+                if hasattr(app, 'update_preview'):
+                    app.update_preview()
+            except Exception as e:
+                logging.error(f"Erro ao carregar CSV via argumento: {e}")
+
+    # Executa após a UI estar pronta
+    app.after(100, fill_cli_loaded_files)
     app.mainloop()

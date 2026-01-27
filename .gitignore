@@ -2,6 +2,9 @@
 config.py
 email-template.html
 
+# Branding
+.branding/
+
 # Logs
 logs/
 *.log

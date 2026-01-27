@@ -19,8 +19,8 @@ FONT_COLOR = (0, 0, 0)
 DEFAULT_EMAIL_CONFIG = {
     "use_template": False,
     "template_path": "",
-    "subject": "Seu Certificado",
-    "attachment_name": "Certificado_{nome}.png",  # Nome do anexo (pode usar placeholders)
+    "subject": "Seu Documento",
+    "attachment_name": "Documento_{nome}.png",  # Nome do anexo (pode usar placeholders)
     "cc": [],  # Lista de emails para CC
     "bcc": []  # Lista de emails para BCC
 }
@@ -28,7 +28,7 @@ DEFAULT_EMAIL_CONFIG = {
 EMAIL_BODY = (
     "Olá {nome},\n\n"
     "Este é um exemplo de email com placeholders.\n"
-    "Em anexo, encontra o seu certificado.\n\n"
+    "Em anexo, encontra o seu documento.\n\n"
     "Cumprimentos,\n"
     "Equipa"
 )

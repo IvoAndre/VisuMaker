@@ -147,6 +147,6 @@ SMTP_USE_TLS = False
 
 ---
 
-**Pronto!** Tudo configurado. Boa sorte com seus certificados! 🎉
+**Pronto!** Tudo configurado. Boa sorte com seus documentos! 🎉
 
 Dúvidas? Consulte a documentação completa ou os exemplos de configuração.
