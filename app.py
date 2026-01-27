@@ -66,7 +66,7 @@ def setup_logging(verbose=False):
         log_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logs")
         os.makedirs(log_dir, exist_ok=True)
         
-        log_file = os.path.join(log_dir, f"certificador_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
+        log_file = os.path.join(log_dir, f"visumaker_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log")
         file_handler = logging.FileHandler(log_file, encoding='utf-8')
         file_handler.setLevel(logging.DEBUG)
         file_formatter = logging.Formatter('%(asctime)s - %(levelname)s: %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
@@ -76,7 +76,7 @@ def setup_logging(verbose=False):
         logging.info(f"Logs will be saved at: {log_file}")
 
 # Parse de argumentos de linha de comando
-parser = argparse.ArgumentParser(description='Certificador - Gerador de Certificados')
+parser = argparse.ArgumentParser(description='VisuMaker - Gerador de Documentos Visuais')
 parser.add_argument('-v', '--verbose', action='store_true', help='Ativa modo verbose com logs detalhados')
 args = parser.parse_args()
 
@@ -95,7 +95,7 @@ class CertificateApp(tk.Tk):
     def __init__(self):
         super().__init__()
         
-        self.title("Certificador")
+        self.title("VisuMaker")
         self.geometry("1200x700")
         self.configure(bg='#303030')  # Tema escuro
         
@@ -4874,10 +4874,10 @@ class CertificateApp(tk.Tk):
                 self.canvas.yview_moveto(0)
                 
                 # Limpa o título do ficheiro atual
-                self.title("Certificador - Novo Projeto")
+                self.title("VisuMaker - Novo Projeto")
         else:
             # Se não houver conteúdo, apenas limpa o título
-            self.title("Certificador - Novo Projeto")
+            self.title("VisuMaker - Novo Projeto")
 
     def forget_csv(self):
         """Limpa as referências aos dados do CSV"""
@@ -5646,7 +5646,7 @@ DEFAULT_EMAIL_CONFIG = {{
 
 if __name__ == "__main__":
     # Mensagem de início
-    logging.info("Iniciando Certificador...")
+    logging.info("Iniciando VisuMaker...")
     # Se estiver em modo verbose, mostra mais informações
     if args.verbose:
         logging.info("Modo verbose ativado - logs detalhados serão mostrados")

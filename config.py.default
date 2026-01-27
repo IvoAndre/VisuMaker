@@ -7,7 +7,7 @@ SMTP_SERVER = 'smtp.gmail.com'  # ou seu servidor SMTP (ex: smtp.office365.com p
 SMTP_PORT = 587  # 587 para TLS, 465 para SSL
 SMTP_USER = 'seu_email@gmail.com'  # Seu email
 SMTP_PASSWORD = 'sua_senha_aplicacao'  # Sua senha ou chave de aplicação
-SMTP_FROM_NAME = 'Certificador'  # Nome que aparece como remetente
+SMTP_FROM_NAME = 'VisuMaker'  # Nome que aparece como remetente
 SMTP_USE_TLS = True  # Use True para TLS, False para SSL
 
 # Fonte e tamanho padrão

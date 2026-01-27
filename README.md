@@ -1,18 +1,18 @@
-# Certificador
+# VisuMaker
 
-Aplicação para geração automática de certificados a partir de modelos personalizáveis.
+Aplicação para geração automática de documentos visuais a partir de modelos personalizáveis.
 
 ## Descrição
 
-O Certificador é uma ferramenta desenvolvida em Python com interface gráfica que permite criar e personalizar certificados em massa.
+O VisuMaker é uma ferramenta desenvolvida em Python com interface gráfica que permite criar e personalizar documentos visuais em massa.
 
 ### Funcionalidades Principais
 
-- Interface gráfica intuitiva para design de certificados
+- Interface gráfica intuitiva para design de documentos visuais
 - Importação de dados a partir de ficheiros CSV
 - Posicionamento preciso de texto e imagens
-- Suporte para variáveis/placeholders que são substituídos pelos dados dos participantes
-- Envio automático de certificados por email via SMTP
+- Suporte para variáveis/placeholders que são substituídos pelos dados
+- Envio automático de documentos por email via SMTP
 - Pré-visualização do resultado final
 - Salvar e carregar layouts para reutilização
 
@@ -27,10 +27,10 @@ O Certificador é uma ferramenta desenvolvida em Python com interface gráfica q
 
 1. Clone este repositório:
    ```
-   git clone https://github.com/IvoAndre/certificador.git
+   git clone https://github.com/IvoAndre/visumaker.git
    ```
    ```
-   cd certificador
+   cd visumaker
    ```
 
 2. Execute o script de instalação:
@@ -60,7 +60,7 @@ SMTP_SERVER = 'smtp.gmail.com'  # ou seu servidor SMTP
 SMTP_PORT = 587                 # 587 para TLS, 465 para SSL
 SMTP_USER = 'seu_email@gmail.com'
 SMTP_PASSWORD = 'sua_senha_ou_token'
-SMTP_FROM_NAME = 'Certificador'
+SMTP_FROM_NAME = 'VisuMaker'
 SMTP_USE_TLS = True             # True para TLS, False para SSL
 ```
 
