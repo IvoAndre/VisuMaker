@@ -33,8 +33,6 @@ O VisuMaker é uma ferramenta desenvolvida em Python com interface gráfica que 
 1. Clone este repositório:
    ```
    git clone https://github.com/IvoAndre/visumaker.git
-   ```
-   ```
    cd visumaker
    ```
 
@@ -46,7 +44,6 @@ O VisuMaker é uma ferramenta desenvolvida em Python com interface gráfica que 
    Ou instale manualmente as dependências:
    ```
    py -m pip install -r requirements.txt
-
    ```
 
 3. Copie o ficheiro de configuração e edite conforme necessário:
