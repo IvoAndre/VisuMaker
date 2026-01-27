@@ -1,3 +1,6 @@
+
+<img width="1665" height="512" alt="VisuMakerLogo" src="https://github.com/user-attachments/assets/0c49a6bf-66b6-4161-bf79-37cae05cf934" />
+
 # VisuMaker
 
 Aplicação para geração automática de documentos visuais a partir de modelos personalizáveis.
