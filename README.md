@@ -102,7 +102,7 @@ Consulte o seu fornecedor de email para os detalhes do servidor SMTP.
    python app.py
    ```
 
-2. Carregue uma imagem de fundo para o certificado
+2. Carregue uma imagem de modelo para o fundo do documento
 3. Adicione texto e imagens conforme necessário
 4. Importe dados dos participantes através de um ficheiro CSV
 5. Gere os certificados e, opcionalmente, envie-os por email
